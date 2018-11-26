@@ -1,3 +1,4 @@
-plaintext*
-keygen
-mykey
+*
+
+!*.c
+!.gitignore
