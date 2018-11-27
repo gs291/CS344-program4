@@ -6,31 +6,33 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
-int textLen = 0, keyLen = 0;
-char plaintext[1024], key[1024];
+int textLen = 0, keyLen = 0, numOfProcess = 0;
+char plaintext[75000], key[75000];
 
 int parseMsg(char *msg) {
 	int i = 1;
-	memset(plaintext, '\0', 1024);
-	memset(key, '\0', 1024);
+	memset(plaintext, '\0', sizeof(plaintext));
+	memset(key, '\0', sizeof(key));
 
 	if(msg[0] == '$') {
 		while(msg[i] != '@') {
 			plaintext[textLen] = msg[i];
-			i++; textLen++;
+			i++;
+			textLen++;
 		}
 		if(msg[i] == '@') {
 			i++;
 			while(msg[i] != '\0') {
 				key[keyLen] = msg[i];
-				i++; keyLen++;
+				i++;
+				keyLen++;
 			}
-		} else
+		} else {
 			return 0;
-		printf("SERVER: plain text (len %d):\t-%s-\n", textLen, plaintext);
-		printf("SERVER: key text (len %d):\t-%s-\n", keyLen, key);
-	} else
+			}
+	} else {
 		return 0;
+		}
 
 	return 1;
 }
@@ -49,8 +51,18 @@ int encText (char *encMsg) {
 	} else
 		return 0;
 
-		printf("ENC MSG:\t\t\t-%s-\n", encMsg);
 		return 1;
+}
+
+void removeBGTasks() {
+  int status, i;
+
+  for(i = 0; i < numOfProcess; i++) {
+      pid_t bg = waitpid(-1, &status, WNOHANG);
+			if (bg != 0 && bg != -1) {
+				numOfProcess--;
+			}
+    }
 }
 
 void error(const char *msg) { perror(msg); exit(1); } // Error function used for reporting issues
@@ -63,10 +75,10 @@ void sendMsg(int connectionFD, const char *msg, int length) {
 
 int main(int argc, char *argv[])
 {
-	int listenSocketFD, establishedConnectionFD, portNumber, charsRead, childExitStatus = -5;;
+	int listenSocketFD, establishedConnectionFD, portNumber, charsRead, childExitStatus = -5;
 	pid_t spawnPid = -5;
 	socklen_t sizeOfClientInfo;
-	char buffer[256], encMsg[1024];
+	char buffer[1024], msg[262144], encMsg[1024];
 	struct sockaddr_in serverAddress, clientAddress;
 
 	if (argc < 2) { fprintf(stderr,"USAGE: %s port\n", argv[0]); exit(1); } // Check usage & args
@@ -87,45 +99,68 @@ int main(int argc, char *argv[])
 		error("ERROR on binding");
 	listen(listenSocketFD, 5); // Flip the socket on - it can now receive up to 5 connections
 
-	// Accept a connection, blocking if one is not available until one connects
-	sizeOfClientInfo = sizeof(clientAddress); // Get the size of the address for the client that will connect
-	establishedConnectionFD = accept(listenSocketFD, (struct sockaddr *)&clientAddress, &sizeOfClientInfo); // Accept
-	if (establishedConnectionFD < 0) error("ERROR on accept");
+	while(1) {
+		//removeBGTasks();
+		// Accept a connection, blocking if one is not available until one connects
+		sizeOfClientInfo = sizeof(clientAddress); // Get the size of the address for the client that will connect
+		establishedConnectionFD = accept(listenSocketFD, (struct sockaddr *)&clientAddress, &sizeOfClientInfo); // Accept
+		if (establishedConnectionFD < 0) error("ERROR on accept");
 
-	// Get the message from the client and display it
-	memset(buffer, '\0', 256);
-	charsRead = recv(establishedConnectionFD, buffer, 255, 0); // Read the client's message from the socket
-	if (charsRead < 0) error("ERROR reading from socket");
-	printf("SERVER: I received this from the client: \"%s\"\n", buffer);
-
-	spawnPid = fork();
-	switch (spawnPid) {
-	      case -1: {
-	        perror("Hull Breach!\n"); exit(1); break;
-	      }
-	    case 0: {  /* CHILD PROCESS */
-	        if(parseMsg(buffer) == 1) {
-						if(encText(encMsg) == 1) {
-							sendMsg(establishedConnectionFD, encMsg, textLen);
-							exit(0);
-						} else {
-							sendMsg(establishedConnectionFD, "!key", 4);
-							exit(2);
-						}
-					} else {
-						sendMsg(establishedConnectionFD, "!con", 4);
-		      	exit(2);
+		spawnPid = fork();
+		switch (spawnPid) {
+		      case -1: {
+		        perror("Hull Breach!\n"); exit(1); break;
+		      }
+		    case 0: {  /* CHILD PROCESS */
+					//setpgid(0, 0);
+					// Get the message from the client and display it
+					memset(buffer, '\0', 1024);
+					memset(msg, '\0', 262144);
+					charsRead = recv(establishedConnectionFD, buffer, 1024, 0); // Read the client's message from the socket
+					buffer[1024] = '\0';
+					strcpy(msg, buffer);
+					if (charsRead < 0) error("ERROR reading from socket");
+					while (buffer[1024-1] != '\0') {
+						memset(buffer, '\0', 1024);
+						charsRead = recv(establishedConnectionFD, buffer, 1024, 0); // Read the client's message from the socket
+						// printf("SERVER: CHARSREAD: %d\n", charsRead);
+						// if(buffer[1024] == '\n' || buffer[1023] == '\n') {
+						// 	printf("THERE S FUCKING NEW LINE\n");
+						// }
+						buffer[1024] = '\0';
+						if (charsRead < 0) error("ERROR reading from socket");
+						strcat(msg, buffer);
+						// printf("TOTAL BUFFER:-%s\nLAST CHAR:-%c-\n\n", buffer, buffer[1024 -1]);
+						//printf("SERVER[%d]: JUST GOT:-%s-\n", charsRead, buffer);
 					}
-					 break;
-	    }
-	    default: {  /* PARENT PROCESS */
-				pid_t actualPid = waitpid(spawnPid, &childExitStatus, 0); /* Waits until the child completes */
-	      break;
-	    }
-	  }
+					//printf("SERVER: TOTAL MSG:-%s-\n", msg);
+		        if(parseMsg(msg) == 1) {
+							// printf("SERVER: text (len %d):-%s-\n\n", textLen, plaintext);
+							// printf("SERVER: key (len %d)\n", keyLen);
+							if(encText(encMsg) == 1) {
+								printf("ENC MSG:-%s-\n", encMsg);
+								sendMsg(establishedConnectionFD, "test", 4/*encMsg, textLen*/);
+								exit(0);
+							} else {
+								sendMsg(establishedConnectionFD, "!key", 4);
+								exit(2);
+							}
+						} else {
+							sendMsg(establishedConnectionFD, "!con", 4);
+			      	exit(2);
+						}
+						 break;
+		    }
+		    default: {  /* PARENT PROCESS */
+					numOfProcess++;
+					pid_t actualPid = waitpid(spawnPid, &childExitStatus, 0); /* Waits until the child completes */
+		      break;
+		    }
+		  }
 
 
-	close(establishedConnectionFD); // Close the existing socket which is connected to the client
+		close(establishedConnectionFD); // Close the existing socket which is connected to the client
+	}
 	close(listenSocketFD); // Close the listening socket
 	return 0;
 }

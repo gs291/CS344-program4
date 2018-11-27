@@ -22,7 +22,7 @@ int checkFileContents (const char *file, char *buffer) {
     exit(1);
   }
   	memset(buffer, '\0', sizeof(buffer));
-    if ( fgets(buffer, 1024, fp) !=NULL ) {
+    if ( fgets(buffer, 75000, fp) !=NULL ) {
       buffer[strcspn(buffer, "\n")] = '\0'; // Remove the trailing \n that fgets adds
     }
     fclose(fp);
@@ -32,15 +32,15 @@ int checkFileContents (const char *file, char *buffer) {
         return 0;
       i++;
     }
-    return 1;
+    return i;
 }
 
 int main(int argc, char *argv[])
 {
-	int socketFD, portNumber, charsWritten, charsRead;
+	int socketFD, portNumber, charsWritten, charsRead, totalSize = 2;
 	struct sockaddr_in serverAddress;
 	struct hostent* serverHostInfo;
-	char buffer[1024], sendingMsg[2048];
+	char buffer[75000], sendingMsg[262144];
 
 	if (argc < 3) { fprintf(stderr,"USAGE: %s hostname port\n", argv[0]); exit(0); } // Check usage & args
 
@@ -65,23 +65,33 @@ int main(int argc, char *argv[])
 	// printf("CLIENT: Enter text to send to the server, and then hit enter: ");
 	memset(buffer, '\0', sizeof(buffer)); // Clear out the buffer array
   memset(sendingMsg, '\0', sizeof(sendingMsg)); // Clear out the sendingMsg array
-  if(checkFileContents(argv[1], buffer) == 0) {
+  totalSize += checkFileContents(argv[1], buffer);
+  if(file1Size == 0) {
     fprintf(stderr, "otp_enc error: input contains bad characters\n");
     exit(1);
   }
   strcpy(sendingMsg, "$");
   strcat(sendingMsg, buffer);
   memset(buffer, '\0', sizeof(buffer));
-  if(checkFileContents(argv[2], buffer) == 0) {
+  totalSize += checkFileContents(argv[2], buffer);
+  if(file2Size == 0) {
     fprintf(stderr, "otp_enc error: input contains bad characters\n");
     exit(1);
   }
   strcat(sendingMsg, "@");
   strcat(sendingMsg, buffer);
+  // printf("CLIENT: sending msg-%s-\n", sendingMsg);
+  char *ptr = sendingMsg;
+  printf("MESSAGE SIZE:-%d-\n", totalSize);
 	// Send message to server
-	charsWritten = send(socketFD, sendingMsg, strlen(sendingMsg), 0); // Write to the server
+	charsWritten = send(socketFD, sendingMsg, 1024/*strlen(sendingMsg)*/, 0); // Write to the server
 	if (charsWritten < 0) error("CLIENT: ERROR writing to socket");
-	if (charsWritten < strlen(sendingMsg)) printf("CLIENT: WARNING: Not all data written to socket!\n");
+	while (charsWritten < (totalSize)) {
+    ptr = sendingMsg + charsWritten;
+    charsWritten += send(socketFD, ptr, 1024/*strlen(sendingMsg)*/, 0); // Write to the server
+    // printf("CLIENT[%d]:\n", charsWritten);
+    if (charsWritten < 0) error("CLIENT: ERROR writing to socket");
+  }
 
 	// Get return message from server
 	memset(buffer, '\0', sizeof(buffer)); // Clear out the buffer again for reuse
