@@ -42,7 +42,7 @@ int main(int argc, char *argv[])
 	struct hostent* serverHostInfo;
 	char buffer[1024], sendingMsg[2048];
 
-	if (argc < 2) { fprintf(stderr,"USAGE: %s hostname port\n", argv[0]); exit(0); } // Check usage & args
+	if (argc < 3) { fprintf(stderr,"USAGE: %s hostname port\n", argv[0]); exit(0); } // Check usage & args
 
 	// Set up the server address struct
 	memset((char*)&serverAddress, '\0', sizeof(serverAddress)); // Clear out the address struct
@@ -87,7 +87,14 @@ int main(int argc, char *argv[])
 	memset(buffer, '\0', sizeof(buffer)); // Clear out the buffer again for reuse
 	charsRead = recv(socketFD, buffer, sizeof(buffer) - 1, 0); // Read data from the socket, leaving \0 at end
 	if (charsRead < 0) error("CLIENT: ERROR reading from socket");
-	printf("CLIENT: I received this from the server: \"%s\"\n", buffer);
+
+  if(strcmp(buffer, "!key") == 0) {
+    fprintf(stderr, "ERROR: key '%s' is too short\n", argv[2]);
+  } else if (strcmp(buffer, "!con") == 0) {
+    fprintf(stderr, "ERROR: could not contact otp_enc_d on port %d\n", portNumber);
+  } else {
+    printf("%s\n", buffer);
+  }
 
 	close(socketFD); // Close the socket
 	return 0;

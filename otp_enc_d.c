@@ -6,13 +6,67 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
+int textLen = 0, keyLen = 0;
+char plaintext[1024], key[1024];
+
+int parseMsg(char *msg) {
+	int i = 1;
+	memset(plaintext, '\0', 1024);
+	memset(key, '\0', 1024);
+
+	if(msg[0] == '$') {
+		while(msg[i] != '@') {
+			plaintext[textLen] = msg[i];
+			i++; textLen++;
+		}
+		if(msg[i] == '@') {
+			i++;
+			while(msg[i] != '\0') {
+				key[keyLen] = msg[i];
+				i++; keyLen++;
+			}
+		} else
+			return 0;
+		printf("SERVER: plain text (len %d):\t-%s-\n", textLen, plaintext);
+		printf("SERVER: key text (len %d):\t-%s-\n", keyLen, key);
+	} else
+		return 0;
+
+	return 1;
+}
+
+int encText (char *encMsg) {
+	int i, cT, cK;
+
+	if(keyLen >= textLen) {
+			for (i = 0; i < textLen; i++) {
+				cT = plaintext[i] - 65; cK = key[i] - 65;
+				if(cT < 0) { cT = 26; } if (cK < 0) { cK = 26; }
+				int cMsg = (cT + cK) % 27 + 65;
+				if(cMsg == 91) {cMsg = 32;}
+				encMsg[i] = cMsg;
+			}
+	} else
+		return 0;
+
+		printf("ENC MSG:\t\t\t-%s-\n", encMsg);
+		return 1;
+}
+
 void error(const char *msg) { perror(msg); exit(1); } // Error function used for reporting issues
+
+void sendMsg(int connectionFD, const char *msg, int length) {
+		// Send a Success message back to the client;
+	int charsRead = send(connectionFD, msg, length, 0); // Send success back
+	if (charsRead < 0) error("ERROR writing to socket");
+}
 
 int main(int argc, char *argv[])
 {
-	int listenSocketFD, establishedConnectionFD, portNumber, charsRead;
+	int listenSocketFD, establishedConnectionFD, portNumber, charsRead, childExitStatus = -5;;
+	pid_t spawnPid = -5;
 	socklen_t sizeOfClientInfo;
-	char buffer[256];
+	char buffer[256], encMsg[1024];
 	struct sockaddr_in serverAddress, clientAddress;
 
 	if (argc < 2) { fprintf(stderr,"USAGE: %s port\n", argv[0]); exit(1); } // Check usage & args
@@ -44,9 +98,33 @@ int main(int argc, char *argv[])
 	if (charsRead < 0) error("ERROR reading from socket");
 	printf("SERVER: I received this from the client: \"%s\"\n", buffer);
 
-	// Send a Success message back to the client
-	charsRead = send(establishedConnectionFD, "I am the server, and I got your message", 39, 0); // Send success back
-	if (charsRead < 0) error("ERROR writing to socket");
+	spawnPid = fork();
+	switch (spawnPid) {
+	      case -1: {
+	        perror("Hull Breach!\n"); exit(1); break;
+	      }
+	    case 0: {  /* CHILD PROCESS */
+	        if(parseMsg(buffer) == 1) {
+						if(encText(encMsg) == 1) {
+							sendMsg(establishedConnectionFD, encMsg, textLen);
+							exit(0);
+						} else {
+							sendMsg(establishedConnectionFD, "!key", 4);
+							exit(2);
+						}
+					} else {
+						sendMsg(establishedConnectionFD, "!con", 4);
+		      	exit(2);
+					}
+					 break;
+	    }
+	    default: {  /* PARENT PROCESS */
+				pid_t actualPid = waitpid(spawnPid, &childExitStatus, 0); /* Waits until the child completes */
+	      break;
+	    }
+	  }
+
+
 	close(establishedConnectionFD); // Close the existing socket which is connected to the client
 	close(listenSocketFD); // Close the listening socket
 	return 0;
