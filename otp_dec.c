@@ -29,11 +29,7 @@ int checkFileContents (const char *file, char *buffer) {
 
   fp = fopen(file, "r");
 
-  if(fp == NULL) {
-    printf("Unable to open %s\n", file);
-    perror("In checkFileContents\n");
-    exit(1);
-  }
+  if(fp == NULL) { error("Unable to open file\n"); }
   	memset(buffer, '\0', sizeof(buffer));
     if ( fgets(buffer, 75000, fp) !=NULL ) {
       buffer[strcspn(buffer, "\n")] = '\0'; // Remove the trailing \n that fgets adds
