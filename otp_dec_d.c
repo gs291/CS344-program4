@@ -7,7 +7,7 @@
 #include <netinet/in.h>
 
 int ciphLen = 0, keyLen = 0;
-char cipher[1024], key[1024];
+char cipher[75000], key[75000];
 
 int parseMsg(char *msg) {
 	int i = 1;
@@ -36,7 +36,7 @@ int parseMsg(char *msg) {
 int decText (char *encMsg) {
 	int i, cT, cK;
 
-  memset(encMsg, '\0', 1024);
+  memset(encMsg, '\0', 262144);
 	if(keyLen >= ciphLen) {
 			for (i = 0; i < ciphLen; i++) {
 				cT = cipher[i] - 65; cK = key[i] - 65;
@@ -55,10 +55,36 @@ int decText (char *encMsg) {
 
 void error(const char *msg) { perror(msg); exit(1); } // Error function used for reporting issues
 
-void sendMsg(int connectionFD, const char *msg, int length) {
+void sendMsg(int connectionFD, char *msg, int length) {
 		// Send a Success message back to the client;
-	int charsRead = send(connectionFD, msg, length, 0); // Send success back
-	if (charsRead < 0) error("ERROR writing to socket");
+		char *ptr = msg;
+		int charsWritten = send(connectionFD, msg, length, 0); // Send success back
+		if (charsWritten < 0) error("ERROR writing to socket");
+		while (charsWritten < (length)) {
+	    ptr = msg + charsWritten;
+	    charsWritten += send(connectionFD, ptr, 1024, 0); // Write to the server
+	    printf("SERVER[%d]:\n", charsWritten);
+	    if (charsWritten < 0) error("CLIENT: ERROR writing to socket");
+	  }
+}
+
+void recvMsg(int connectionFD, char *msg) {
+	char buffer[1024];
+	memset(buffer, '\0', 1024);
+	memset(msg, '\0', 262144);
+
+	int charsRead = recv(connectionFD, buffer, 1024, 0); // Read the client's message from the socket
+	buffer[1024] = '\0';
+	strcpy(msg, buffer);
+
+	if (charsRead < 0) error("ERROR reading from socket");
+	while (buffer[1024-1] != '\0') {
+		memset(buffer, '\0', 1024);
+		charsRead = recv(connectionFD, buffer, 1024, 0); // Read the client's message from the socket
+		buffer[1024] = '\0';
+		if (charsRead < 0) error("ERROR reading from socket");
+		strcat(msg, buffer);
+	}
 }
 
 int main(int argc, char *argv[])
@@ -66,7 +92,7 @@ int main(int argc, char *argv[])
 	int listenSocketFD, establishedConnectionFD, portNumber, charsRead, childExitStatus = -5;;
 	pid_t spawnPid = -5;
 	socklen_t sizeOfClientInfo;
-	char buffer[2048], encMsg[1024];
+	char msg[262144], encMsg[262144];
 	struct sockaddr_in serverAddress, clientAddress;
 
 	if (argc < 2) { fprintf(stderr,"USAGE: %s port\n", argv[0]); exit(1); } // Check usage & args
@@ -93,10 +119,7 @@ int main(int argc, char *argv[])
   	establishedConnectionFD = accept(listenSocketFD, (struct sockaddr *)&clientAddress, &sizeOfClientInfo); // Accept
   	if (establishedConnectionFD < 0) error("ERROR on accept");
 
-  	// Get the message from the client and display it
-  	memset(buffer, '\0', 2048);
-  	charsRead = recv(establishedConnectionFD, buffer, 2048, 0); // Read the client's message from the socket
-  	if (charsRead < 0) error("ERROR reading from socket");
+		recvMsg(establishedConnectionFD, msg);
 
   	spawnPid = fork();
   	switch (spawnPid) {
@@ -104,7 +127,7 @@ int main(int argc, char *argv[])
   	        perror("Hull Breach!\n"); exit(1); break;
   	      }
   	    case 0: {  /* CHILD PROCESS */
-  	        if(parseMsg(buffer) == 1) {
+  	        if(parseMsg(msg) == 1) {
   						if(decText(encMsg) == 1) {
   							sendMsg(establishedConnectionFD, encMsg, ciphLen);
   							exit(0);

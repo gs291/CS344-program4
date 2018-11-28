@@ -35,6 +35,37 @@ int checkFileContents (const char *file, char *buffer) {
     return i;
 }
 
+void sendMsg(int connectionFD, char *msg, int length) {
+	// Send a Success message back to the client;
+	char *ptr = msg;
+	int charsWritten = send(connectionFD, msg, length, 0); // Send success back
+	if (charsWritten < 0) error("ERROR writing to socket");
+	while (charsWritten < (length)) {
+    ptr = msg + charsWritten;
+    charsWritten += send(connectionFD, ptr, 1024, 0); // Write to the server
+    if (charsWritten < 0) error("CLIENT: ERROR writing to socket");
+  }
+}
+
+void recvMsg(int connectionFD, char *msg) {
+	char buffer[1024];
+	memset(buffer, '\0', 1024);
+	memset(msg, '\0', 75000);
+
+	int charsRead = recv(connectionFD, buffer, 1024, 0); // Read the client's message from the socket
+	buffer[1024] = '\0';
+	strcpy(msg, buffer);
+
+	if (charsRead < 0) error("ERROR reading from socket");
+	while (buffer[1024-1] != '\0') {
+		memset(buffer, '\0', 1024);
+		charsRead = recv(connectionFD, buffer, 1024, 0); // Read the client's message from the socket
+		buffer[1024] = '\0';
+		if (charsRead < 0) error("ERROR reading from socket");
+		strcat(msg, buffer);
+	}
+}
+
 int main(int argc, char *argv[])
 {
 	int socketFD, portNumber, charsWritten, charsRead, totalSize = 2;
@@ -62,46 +93,33 @@ int main(int argc, char *argv[])
 		error("CLIENT: ERROR connecting");
 
 	// Get input message from user
-	// printf("CLIENT: Enter text to send to the server, and then hit enter: ");
 	memset(buffer, '\0', sizeof(buffer)); // Clear out the buffer array
   memset(sendingMsg, '\0', sizeof(sendingMsg)); // Clear out the sendingMsg array
-  totalSize += checkFileContents(argv[1], buffer);
-  if(file1Size == 0) {
-    fprintf(stderr, "otp_enc error: input contains bad characters\n");
-    exit(1);
-  }
+
+  int file1Size = checkFileContents(argv[1], buffer);
+  if(file1Size == 0) { fprintf(stderr, "otp_enc error: input contains bad characters\n"); exit(1); }
+
   strcpy(sendingMsg, "$");
   strcat(sendingMsg, buffer);
   memset(buffer, '\0', sizeof(buffer));
-  totalSize += checkFileContents(argv[2], buffer);
-  if(file2Size == 0) {
-    fprintf(stderr, "otp_enc error: input contains bad characters\n");
-    exit(1);
-  }
+
+  int file2Size = checkFileContents(argv[2], buffer);
+  if(file2Size == 0) { fprintf(stderr, "otp_enc error: input contains bad characters\n"); exit(1); }
+
+  totalSize = totalSize + file1Size + file2Size;
   strcat(sendingMsg, "@");
   strcat(sendingMsg, buffer);
-  // printf("CLIENT: sending msg-%s-\n", sendingMsg);
-  char *ptr = sendingMsg;
-  printf("MESSAGE SIZE:-%d-\n", totalSize);
-	// Send message to server
-	charsWritten = send(socketFD, sendingMsg, 1024/*strlen(sendingMsg)*/, 0); // Write to the server
-	if (charsWritten < 0) error("CLIENT: ERROR writing to socket");
-	while (charsWritten < (totalSize)) {
-    ptr = sendingMsg + charsWritten;
-    charsWritten += send(socketFD, ptr, 1024/*strlen(sendingMsg)*/, 0); // Write to the server
-    // printf("CLIENT[%d]:\n", charsWritten);
-    if (charsWritten < 0) error("CLIENT: ERROR writing to socket");
-  }
 
-	// Get return message from server
-	memset(buffer, '\0', sizeof(buffer)); // Clear out the buffer again for reuse
-	charsRead = recv(socketFD, buffer, sizeof(buffer) - 1, 0); // Read data from the socket, leaving \0 at end
-	if (charsRead < 0) error("CLIENT: ERROR reading from socket");
+  sendMsg(socketFD, sendingMsg, totalSize);
+
+  recvMsg(socketFD, buffer);
 
   if(strcmp(buffer, "!key") == 0) {
     fprintf(stderr, "ERROR: key '%s' is too short\n", argv[2]);
+    exit(1);
   } else if (strcmp(buffer, "!con") == 0) {
     fprintf(stderr, "ERROR: could not contact otp_enc_d on port %d\n", portNumber);
+    exit(2);
   } else {
     printf("%s\n", buffer);
   }
