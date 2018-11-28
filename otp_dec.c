@@ -1,3 +1,10 @@
+/*
+ * Name: Gregory Sanchez
+ * File: Decryption Client
+ * Description: Client side use for decrypting a message
+ * Date: 11-30-2018
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -10,6 +17,12 @@
 
 void error(const char *msg) { perror(msg); exit(0); } // Error function used for reporting issues
 
+/*
+ * Name: Check File Contents
+ * Description: opens a given file and outputs it into the buffer.
+ *    Then check that the file contains no invalid characters
+ * Return: 0 in the file contains invalide characters or the number of characters in the file
+ */
 int checkFileContents (const char *file, char *buffer) {
   int i = 0;
   FILE *fp;
@@ -35,40 +48,45 @@ int checkFileContents (const char *file, char *buffer) {
     return i;
 }
 
+/*
+ * Name: send message
+ * Description: sends a message to an established socket connection
+ */
 void sendMsg(int connectionFD, char *msg, int length) {
 		// Send a Success message back to the client;
 		char *ptr = msg;
-		int charsWritten = send(connectionFD, msg, length, 0); // Send success back
+		int charsWritten = send(connectionFD, msg, length, 0); // Write to the server
 		if (charsWritten < 0) error("ERROR writing to socket");
-		while (charsWritten < (length)) {
+		while (charsWritten < (length)) { // Keep looping if there are more characters to send
 	    ptr = msg + charsWritten;
-	    charsWritten += send(connectionFD, ptr, 1024/*strlen(sendingMsg)*/, 0); // Write to the server
-	    // printf("CLIENT[%d]:\n", charsWritten);
+	    charsWritten += send(connectionFD, ptr, 1024, 0); // Write to the server
 	    if (charsWritten < 0) error("CLIENT: ERROR writing to socket");
 	  }
 }
 
+/*
+ * Name: recieve message
+ * Description: recieves a message from an established socket connection
+ */
 void recvMsg(int connectionFD, char *msg) {
 	char buffer[1024];
 	memset(buffer, '\0', 1024);
 	memset(msg, '\0', 75000);
 
+  //Wait till the server responds
 	int charsRead = recv(connectionFD, buffer, 1024, 0); // Read the client's message from the socket
 	buffer[1024] = '\0';
 	strcpy(msg, buffer);
 
 	if (charsRead < 0) error("ERROR reading from socket");
-	while (buffer[1024-1] != '\0') {
+	while (buffer[1024-1] != '\0') { //Keep looping if there are possibly more characters to recieve
 		memset(buffer, '\0', 1024);
 		charsRead = recv(connectionFD, buffer, 1024, 0); // Read the client's message from the socket
 		buffer[1024] = '\0';
 		if (charsRead < 0) error("ERROR reading from socket");
 		strcat(msg, buffer);
-		// printf("TOTAL BUFFER:-%s\nLAST CHAR:-%c-\n\n", buffer, buffer[1024 -1]);
-		//printf("SERVER[%d]: JUST GOT:-%s-\n", charsRead, buffer);
 	}
 }
-
 
 int main(int argc, char *argv[])
 {
@@ -96,42 +114,35 @@ int main(int argc, char *argv[])
 	if (connect(socketFD, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) < 0) // Connect socket to address
 		error("CLIENT: ERROR connecting");
 
-	// Get input message from user
-	// printf("CLIENT: Enter text to send to the server, and then hit enter: ");
 	memset(buffer, '\0', sizeof(buffer)); // Clear out the buffer array
   memset(sendingMsg, '\0', sizeof(sendingMsg)); // Clear out the sendingMsg array
-  int file1Size = checkFileContents(argv[1], buffer);
-  if(file1Size == 0) {
-    fprintf(stderr, "otp_enc error: input contains bad characters\n");
-    exit(1);
-  }
+
+  int file1Size = checkFileContents(argv[1], buffer); //Get the contents of the cipher text
+  if(file1Size == 0) { fprintf(stderr, "otp_enc error: input contains bad characters\n"); exit(1); }
+
+  //Create a special string that will be sent to the server
+  //This string will have the format of "@cipher$key"
+  //Only the otp_dec_d server will interpret this string
   strcpy(sendingMsg, "@");
   strcat(sendingMsg, buffer);
   memset(buffer, '\0', sizeof(buffer));
-  int file2Size = checkFileContents(argv[2], buffer);
-  if(file2Size == 0) {
-    fprintf(stderr, "otp_enc error: input contains bad characters\n");
-    exit(1);
-  }
+
+  int file2Size = checkFileContents(argv[2], buffer); //Get the contents of the key text
+  if(file2Size == 0) { fprintf(stderr, "otp_enc error: input contains bad characters\n"); exit(1); }
+
   strcat(sendingMsg, "$");
   strcat(sendingMsg, buffer);
-	// Send message to server
-	// charsWritten = send(socketFD, sendingMsg, strlen(sendingMsg), 0); // Write to the server
-	// if (charsWritten < 0) error("CLIENT: ERROR writing to socket");
-	// if (charsWritten < strlen(sendingMsg)) printf("CLIENT: WARNING: Not all data written to socket!\n");
-  // printf("CLIENT: SENING MSG:-%s-\n", sendingMsg);
-  sendMsg(socketFD, sendingMsg, file1Size + file2Size + 2);
-	// Get return message from server
-	// memset(buffer, '\0', sizeof(buffer)); // Clear out the buffer again for reuse
-	// charsRead = recv(socketFD, buffer, sizeof(buffer) - 1, 0); // Read data from the socket, leaving \0 at end
-	// if (charsRead < 0) error("CLIENT: ERROR reading from socket");
-  recvMsg(socketFD, buffer);
 
-  if(strcmp(buffer, "!key") == 0) {
+  sendMsg(socketFD, sendingMsg, file1Size + file2Size + 2); //Send the "@cipher$key" string to the server
+
+  recvMsg(socketFD, buffer); //Wait till the server responds
+
+  //Check what the server reponse was
+  if(strcmp(buffer, "!key") == 0) { // Server ERROR code signaling the key was too short
     fprintf(stderr, "ERROR: key '%s' is too short\n", argv[2]);
-  } else if (strcmp(buffer, "!con") == 0) {
+  } else if (strcmp(buffer, "!con") == 0) { // Server ERROR code signaling there was an attempted invalid connection
     fprintf(stderr, "ERROR: could not contact otp_enc_d on port %d\n", portNumber);
-  } else {
+  } else { // Else print the encrypted message from the server
     printf("%s\n", buffer);
   }
 
