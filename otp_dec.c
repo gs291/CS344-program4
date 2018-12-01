@@ -51,7 +51,7 @@ int checkFileContents (const char *file, char *buffer) {
 void sendMsg(int connectionFD, char *msg, int length) {
 		// Send a Success message back to the client;
 		char *ptr = msg;
-		int charsWritten = send(connectionFD, msg, length, 0); // Write to the server
+		int charsWritten = send(connectionFD, msg, 1024, 0); // Write to the server
 		if (charsWritten < 0) error("ERROR writing to socket");
 		while (charsWritten < (length)) { // Keep looping if there are more characters to send
 	    ptr = msg + charsWritten;

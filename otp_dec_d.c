@@ -13,8 +13,26 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
-int ciphLen = 0, keyLen = 0;
+int ciphLen = 0, keyLen = 0, numOfProcess = 0;
+int background_PID[100];
 char cipher[75000], key[75000];
+
+/*
+ * Name: remove background tasks
+ * Description: scans to see if any childs were left to be a zombie, and it properly disposes of it
+ */
+void removeBGTasks() {
+  int i, status;
+
+  for(i = numOfProcess - 1; i >= 0; i--) {
+      pid_t bg = waitpid(-1, &status, WNOHANG);
+      if (bg != 0 && bg != -1) {
+        background_PID[i] = 0;
+        numOfProcess--;
+      }
+  }
+  pid_t bg = waitpid(-1, &status, WNOHANG);
+}
 
 /*
  * Name: parse message
@@ -79,12 +97,11 @@ void error(const char *msg) { perror(msg); exit(1); } // Error function used for
 void sendMsg(int connectionFD, char *msg, int length) {
 		// Send a Success message back to the client;
 		char *ptr = msg;
-		int charsWritten = send(connectionFD, msg, length, 0); // Write to the client
+		int charsWritten = send(connectionFD, msg, 1024, 0); // Write to the client
 		if (charsWritten < 0) error("ERROR writing to socket");
 		while (charsWritten < (length)) { // Keep looping if there are more characters to send
 	    ptr = msg + charsWritten;
 	    charsWritten += send(connectionFD, ptr, 1024, 0); // Write to the client
-	    printf("SERVER[%d]:\n", charsWritten);
 	    if (charsWritten < 0) error("CLIENT: ERROR writing to socket");
 	  }
 }
@@ -144,12 +161,15 @@ int main(int argc, char *argv[])
   	establishedConnectionFD = accept(listenSocketFD, (struct sockaddr *)&clientAddress, &sizeOfClientInfo); // Accept
   	if (establishedConnectionFD < 0) error("ERROR on accept");
 
+		removeBGTasks();
+
   	spawnPid = fork(); // Create a child process to handle the decrypting
   	switch (spawnPid) {
   	      case -1: {
   	        perror("Hull Breach!\n"); exit(1); break;
   	      }
   	    case 0: {  /* CHILD PROCESS */
+					setpgid(0, 0);
 					recvMsg(establishedConnectionFD, msg); // Get the entire message from the client
   	        if(parseMsg(msg) == 1) { // Parse the message
   						if(decText(decMsg) == 1) { // Decrypt the message
@@ -166,7 +186,9 @@ int main(int argc, char *argv[])
   					 break;
   	    }
   	    default: {  /* PARENT PROCESS */
-  				pid_t actualPid = waitpid(spawnPid, &childExitStatus, 0); /* Waits until the child completes */
+					background_PID[numOfProcess] = getpid();
+					numOfProcess++;
+  				//pid_t actualPid = waitpid(spawnPid, &childExitStatus, 0); /* Waits until the child completes */
   	      break;
   	    }
   	  }
